@@ -1,0 +1,50 @@
+name: Auto Update Chinese Calendar
+
+on:
+  schedule:
+    # 定时任务：每天北京时间凌晨 2 点 (UTC 时间前一天的 18:00) 运行
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'main.py' 
+
+jobs:
+  update-calendar:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write 
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10' # 指定 Python 版本
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests lunar_python
+
+      - name: Run calendar generator script
+        run: |
+          python main.py
+
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          git add chinese_holidays.ics chinese-days.json traditional_cache.json
+          
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: 自动同步最新法定节假日与日历 [skip ci]"
+            git push
+            echo "日历和缓存已更新并推送到仓库！"
+          else
+            echo "日历内容无实质变化，跳过提交。"
+          fi
