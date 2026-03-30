@@ -9,7 +9,7 @@ from lunar_python import Solar
 # ================= 配置项 =================
 DATA_URL = "https://cdn.jsdelivr.net/npm/chinese-days/dist/chinese-days.json"
 DATA_FILENAME = "chinese-days.json"
-TRADITIONAL_CACHE_FILENAME = "traditional_cache.json" # [新增] 民俗计算缓存文件
+TRADITIONAL_CACHE_FILENAME = "traditional_cache.json"
 OUTPUT_FILENAME = "chinese_holidays.ics"
 TZ_ID = "Asia/Shanghai"
 
@@ -110,9 +110,9 @@ class CalendarGenerator:
     def __init__(self):
         self.events = []
         self.raw_data = {}
-        self.holiday_groups = {} 
-        self.traditional_cache_list = [] # [新增] 用于暂存计算结果
-        
+        self.holiday_groups = {}
+        self.traditional_cache_list = []
+
     def ensure_data_file(self):
         print(f"正在检查法定假日数据更新: {DATA_URL}")
         try:
@@ -121,16 +121,16 @@ class CalendarGenerator:
             remote_content = resp.content
             remote_hash = hashlib.md5(remote_content).hexdigest()
             local_hash = calculate_file_md5(DATA_FILENAME)
-            
+
             if local_hash != remote_hash:
                 print("发现法定假日新版本或本地缺失，正在写入...")
                 with open(DATA_FILENAME, 'wb') as f:
                     f.write(remote_content)
             else:
                 print("法定假日本地缓存已是最新。")
-            
+
             self.raw_data = json.loads(remote_content)
-            
+
         except Exception as e:
             print(f"网络请求或写入失败: {e}")
             if os.path.exists(DATA_FILENAME):
@@ -153,11 +153,11 @@ class CalendarGenerator:
                     if len(parts) >= 2: cn_name = parts[1]
                 elif isinstance(val, dict):
                     cn_name = val.get('name', '')
-                
+
                 if not cn_name: continue
                 if cn_name not in temp_groups:
                     temp_groups[cn_name] = {'holidays': [], 'workdays': []}
-                
+
                 try:
                     dt = datetime.strptime(date_str, "%Y-%m-%d")
                     if is_workday: temp_groups[cn_name]['workdays'].append(dt)
@@ -191,20 +191,20 @@ class CalendarGenerator:
             all_h_dates = data['holidays']
             all_w_dates = sorted(list(set(data['workdays'])))
             blocks = self.get_consecutive_blocks(all_h_dates)
-            
+
             for block in blocks:
                 start_dt = block[0]
                 end_dt = block[-1]
-                
+
                 related_workdays = []
                 check_start = start_dt - timedelta(days=20)
                 check_end = end_dt + timedelta(days=20)
                 for wd in all_w_dates:
                     if check_start <= wd <= check_end: related_workdays.append(wd)
-                
+
                 description = self.generate_block_description(name, block, related_workdays)
                 ics_end_dt = end_dt + timedelta(days=1)
-                
+
                 self.events.append({
                     "dtstart": format_ics_date(start_dt),
                     "dtend": format_ics_date(ics_end_dt),
@@ -221,7 +221,7 @@ class CalendarGenerator:
                     w_summary = f"{name} 补班"
                     w_start = wd.replace(hour=9, minute=0, second=0)
                     w_end = wd.replace(hour=18, minute=0, second=0)
-                    
+
                     self.events.append({
                         "dtstart": format_ics_date(w_start, False),
                         "dtend": format_ics_date(w_end, False),
@@ -247,7 +247,6 @@ class CalendarGenerator:
             desc += " " + "、".join(w_desc_list) + "上班。"
         return desc
 
-    # [新增] 专门用于记录缓存的包裹函数
     def _record_traditional_event(self, start_dt, end_dt, summary, description="", is_allday=True):
         self.traditional_cache_list.append({
             "start": start_dt.strftime("%Y%m%d"),
@@ -259,13 +258,11 @@ class CalendarGenerator:
         self.create_event(start_dt, end_dt, summary, description, is_allday)
 
     def add_traditional_events(self):
-        # [新增] 1. 优先检查并读取本地缓存
         if os.path.exists(TRADITIONAL_CACHE_FILENAME):
             try:
                 with open(TRADITIONAL_CACHE_FILENAME, 'r', encoding='utf-8') as f:
                     cache_data = json.load(f)
-                
-                # 校验缓存的年份范围是否匹配，如果匹配则直接加载
+
                 if cache_data.get("start_year") == TRADITIONAL_START_YEAR and \
                    cache_data.get("end_year") == TRADITIONAL_END_YEAR:
                     print("检测到匹配的民俗/传统节日缓存，直接加载，跳过复杂计算...")
@@ -279,34 +276,30 @@ class CalendarGenerator:
             except Exception as e:
                 print(f"读取民俗缓存失败: {e}，将重新计算...")
 
-        # 2. 如果无缓存或缓存失效，则进行逐日计算
         print(f"正在深度计算民俗/动态/传统节日 ({TRADITIONAL_START_YEAR}-{TRADITIONAL_END_YEAR})，这需要一点时间...")
-        self.traditional_cache_list = [] # 清空缓存列表准备记录
+        self.traditional_cache_list = []
 
         for year in range(TRADITIONAL_START_YEAR, TRADITIONAL_END_YEAR + 1):
             for date_str, name in FIXED_FESTIVALS_SOLAR.items():
                 try:
                     dt = datetime.strptime(f"{year}-{date_str}", "%Y-%m-%d")
-                    
-                    # 1. 处理香港回归 (7月1日与建党节同日，需要保留建党节并额外添加回归日)
+
                     if date_str == "07-01":
-                        self._record_traditional_event(dt, dt + timedelta(days=1), name, "公历节日") # 保留建党节
+                        self._record_traditional_event(dt, dt + timedelta(days=1), name, "公历节日")
                         anniversary = year - 1997
-                        if anniversary > 0: 
+                        if anniversary > 0:
                             self._record_traditional_event(dt, dt + timedelta(days=1), f"香港回归纪念日({anniversary}周年)", "纪念日")
-                            
-                    # 2. 处理澳门回归
+
                     elif date_str == "12-20":
                         anniversary = year - 1999
-                        if anniversary > 0: 
+                        if anniversary > 0:
                             self._record_traditional_event(dt, dt + timedelta(days=1), f"澳门回归纪念日({anniversary}周年)", "纪念日")
                         else:
-                            self._record_traditional_event(dt, dt + timedelta(days=1), name, "公历节日") # 1999年及以前兜底用原名
-                            
-                    # 3. 其他常规公历节日正常添加
+                            self._record_traditional_event(dt, dt + timedelta(days=1), name, "公历节日")
+
                     else:
                         self._record_traditional_event(dt, dt + timedelta(days=1), name, "公历节日")
-                        
+
                 except ValueError: pass
 
             self.create_dynamic_solar_event(year, 5, 6, 2, "母亲节")
@@ -320,12 +313,12 @@ class CalendarGenerator:
             end_dt = datetime(year, 12, 31)
             looking_for_rumei = False
             looking_for_chumei = False
-            
+
             while curr <= end_dt:
                 solar = Solar.fromYmd(curr.year, curr.month, curr.day)
                 lunar = solar.getLunar()
                 l_month, l_day = lunar.getMonth(), lunar.getDay()
-                
+
                 jie_qi = lunar.getJieQi()
                 if jie_qi:
                     self._record_traditional_event(curr, curr + timedelta(days=1), jie_qi, "二十四节气")
@@ -334,11 +327,11 @@ class CalendarGenerator:
 
                 if looking_for_rumei and lunar.getDayGan() == "丙":
                     self._record_traditional_event(curr, curr + timedelta(days=1), "入梅", "节气民俗")
-                    looking_for_rumei = False 
-                
+                    looking_for_rumei = False
+
                 if looking_for_chumei and lunar.getDayZhi() == "未":
                     self._record_traditional_event(curr, curr + timedelta(days=1), "出梅", "节气民俗")
-                    looking_for_chumei = False 
+                    looking_for_chumei = False
 
                 if lunar.getShuJiu() and lunar.getShuJiu().getIndex() == 1:
                     name = lunar.getShuJiu().getName()
@@ -357,7 +350,7 @@ class CalendarGenerator:
 
                 if (l_month, l_day) in FIXED_FESTIVALS_LUNAR:
                     self._record_traditional_event(curr, curr + timedelta(days=1), FIXED_FESTIVALS_LUNAR[(l_month, l_day)], "传统节日")
-                
+
                 tomorrow_lunar = Solar.fromYmd((curr + timedelta(days=1)).year, (curr + timedelta(days=1)).month, (curr + timedelta(days=1)).day).getLunar()
                 if tomorrow_lunar.getJieQi() == "清明":
                     self._record_traditional_event(curr, curr + timedelta(days=1), "寒食节", "传统节日")
@@ -368,8 +361,7 @@ class CalendarGenerator:
                     self._record_traditional_event(curr, curr + timedelta(days=1), "除夕", "传统节日")
 
                 curr += timedelta(days=1)
-                
-        # [新增] 3. 循环结束后，将记录的内容写入本地缓存文件
+
         print("计算完毕，正在保存民俗/传统节日缓存...")
         cache_data = {
             "start_year": TRADITIONAL_START_YEAR,
@@ -383,7 +375,7 @@ class CalendarGenerator:
         first_day = datetime(year, month, 1)
         delta_days = (target_weekday - first_day.weekday() + 7) % 7
         target_date = first_day + timedelta(days=delta_days) + timedelta(weeks=nth-1)
-        
+
         if target_date.month == month:
             self._record_traditional_event(target_date, target_date + timedelta(days=1), name, "公历动态节日")
             return target_date
@@ -392,12 +384,12 @@ class CalendarGenerator:
     def create_event(self, start_dt, end_dt, summary, description="", is_allday=True):
         unique_str = f"{start_dt.strftime('%Y%m%d')}-{summary}"
         uid_hash = hashlib.md5(unique_str.encode()).hexdigest()[:12]
-        
+
         self.events.append({
             "dtstart": format_ics_date(start_dt, is_allday),
             "dtend": format_ics_date(end_dt, is_allday),
             "uid": generate_uid(start_dt.strftime("%Y%m%d"), uid_hash),
-            "created": get_now_utc_stamp(),
+            "created": "19700101T000000Z",
             "description": description,
             "summary": summary,
             "status": "CONFIRMED",
@@ -429,10 +421,10 @@ class CalendarGenerator:
             "END:STANDARD",
             "END:VTIMEZONE"
         ]
-        
+
         self.events.sort(key=lambda x: x['dtstart'])
         now_stamp = get_now_utc_stamp()
-        
+
         for ev in self.events:
             lines.append("BEGIN:VEVENT")
             if ev['is_allday']:
@@ -441,7 +433,7 @@ class CalendarGenerator:
             else:
                 lines.append(f"DTSTART;TZID={TZ_ID}:{ev['dtstart']}")
                 lines.append(f"DTEND;TZID={TZ_ID}:{ev['dtend']}")
-                
+
             lines.append(f"DTSTAMP:{now_stamp}")
             lines.append(f"UID:{ev['uid']}")
             lines.append(f"CREATED:{ev['created']}")
@@ -450,16 +442,16 @@ class CalendarGenerator:
             lines.append(f"STATUS:{ev['status']}")
             lines.append(fold_line(f"SUMMARY:{ev['summary']}"))
             lines.append(f"TRANSP:{ev['transp']}")
-            
+
             if 'alarm' in ev:
                 lines.append("BEGIN:VALARM")
                 lines.append("TRIGGER:-P1D")
                 lines.append("ACTION:DISPLAY")
                 lines.append(fold_line(f"DESCRIPTION:{ev['alarm']}"))
                 lines.append("END:VALARM")
-            
+
             lines.append("END:VEVENT")
-            
+
         lines.append("END:VCALENDAR")
         return "\r\n".join(lines)
 
@@ -468,13 +460,14 @@ class CalendarGenerator:
         new_content_full = self.generate_ics_content(current_display_time)
         old_content = ""
         old_display_time = ""
-        
+
         if os.path.exists(OUTPUT_FILENAME):
-            with open(OUTPUT_FILENAME, 'r', encoding='utf-8') as f:
+            # ★ 修复：用 newline='' 读取，保持 \r\n 与写入时一致，避免行尾差异导致误判为内容变更
+            with open(OUTPUT_FILENAME, 'r', encoding='utf-8', newline='') as f:
                 old_content = f.read()
             match = re.search(r"更新时间(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", old_content)
             if match: old_display_time = match.group(1)
-        
+
         if self.is_content_same(old_content, new_content_full):
             print("文件内容无实质变化，保持更新时间不变。")
             if old_display_time: final_content = self.generate_ics_content(old_display_time)
@@ -482,7 +475,7 @@ class CalendarGenerator:
         else:
             print(f"检测到内容更新，更新时间戳为：{current_display_time}")
             final_content = new_content_full
-            
+
         with open(OUTPUT_FILENAME, 'w', encoding='utf-8', newline='') as f:
             f.write(final_content)
 
@@ -490,9 +483,9 @@ class CalendarGenerator:
         if not old_text: return False
         def clean(text):
             text = re.sub(r"更新时间\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", "", text)
-            text = re.sub(r"DTSTAMP:.*", "", text)
-            text = re.sub(r"LAST-MODIFIED:.*", "", text)
-            text = re.sub(r"CREATED:.*", "", text)
+            text = re.sub(r"^DTSTAMP:.*$", "", text, flags=re.MULTILINE)
+            text = re.sub(r"^LAST-MODIFIED:.*$", "", text, flags=re.MULTILINE)
+            text = re.sub(r"^CREATED:.*$", "", text, flags=re.MULTILINE)
             return text.strip()
         return clean(old_text) == clean(new_text)
 
