@@ -1,9 +1,9 @@
 name: Auto Update Chinese Calendar
 
 on:
-  schedule:
+#  schedule:
     # 定时任务：每天北京时间凌晨 2 点 (UTC 时间前一天的 18:00) 运行
-    - cron: '0 18 * * *'
+#    - cron: '0 18 * * *'
   workflow_dispatch:
   push:
     paths:
